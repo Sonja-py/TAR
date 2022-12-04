@@ -1,7 +1,6 @@
 from torch import nn
 import torch
 import numpy as np
-import math
 
 
 class ScaledDotAttention(nn.Module()):
@@ -62,7 +61,7 @@ class PositionalEncoding(nn.Module()):
         super(PositionalEncoding).__init__()
         pe = torch.zeros(max_len, dim, requires_grad=False)
         pos = torch.arange(0, max_len).unsqueeze(1).type(torch.FloatTensor)
-        term = torch.exp(torch.arange(0, dim, 2).type(torch.FloatTensor) * -(math.log(10000.0) / dim))
+        term = torch.exp(torch.arange(0, dim, 2).type(torch.FloatTensor) * -(np.log(10000.0) / dim))
         pe[:, 0::2] = torch.sin(pos * term)
         pe[:, 1::2] = torch.cos(pos * term)
         pe = pe.unsqueeze(0)
