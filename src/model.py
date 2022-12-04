@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import math
 
+
 class ScaledDotAttention(nn.Module()):
     def __init__(self, a_dropout, a_dim):
         super(ScaledDotAttention).__init__()
@@ -19,13 +20,14 @@ class ScaledDotAttention(nn.Module()):
         out = torch.bmm(atn, v)
         return out, atn
 
+
 class MultiHeadAttention(nn.Module()):
     def __init__(self, num_heads, in_dim, k_dim, a_dropout=.1):
         super(MultiHeadAttention).__init__()
         self.q = nn.Linear(in_dim, num_heads * k_dim)
         self.k = nn.Linear(in_dim, num_heads * k_dim)
         self.v = nn.Linear(in_dim, num_heads * k_dim)
-        self.attention = ScaledDotAttention(a_dropout, k_dim)
+        self.attention = ScaledDotAttention(a_dropout, k_dim / num_heads)
         self.sqrt = np.sqrt(in_dim)
         self.dropout = nn.Dropout(a_dropout)
         self.num_heads = num_heads
@@ -54,6 +56,7 @@ class MultiHeadAttention(nn.Module()):
 
         return out, atn
 
+
 class PositionalEncoding(nn.Module()):
     def __init__(self, dim, max_len):
         super(PositionalEncoding).__init__()
@@ -67,6 +70,7 @@ class PositionalEncoding(nn.Module()):
 
     def forward(self, inp):
         return self.pe[:, :inp.size(1)]
+
 
 class Net(nn.Module()):
     def __init__(self, dropout, dim_in, dim_ff):
@@ -86,6 +90,22 @@ class Net(nn.Module()):
         out = self.dropout(out)
         out = self.layer_norm(out + res)
         return out
+
+
+class EncodingLayer(nn.Module):
+    def __init__(self, num_heads, dim_in, dim_ff, dropout=.01):
+        super(EncodingLayer).__init__()
+        self.attention = MultiHeadAttention(num_heads, dim_in, dropout)
+        self.forward = Net(dropout, dim_in, dim_ff)
+
+    def forward(self, input, mask = None):
+        out, atn = self.self_attention(input, input, input, mask)
+        out = self.forward(out)
+        return out, atn
+
+class Encoder():
+    def __init__(self, num_layers, num_heads, dim_in, dim_ff, dropout, maxlen):
+        pass
 
 
 
