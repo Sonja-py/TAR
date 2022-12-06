@@ -99,6 +99,7 @@ class EncodingLayer(nn.Module):
 
 
 class Encoder(nn.Module()):
+    #mask?
     def __init__(self, num_heads, dim_in, dim_ff, dropout, maxlen):
         super(Encoder).__init__()
         self.dropout = nn.Dropout(dropout)
@@ -118,8 +119,12 @@ class Encoder(nn.Module()):
 
 
 class DecodingLayer(nn.Module()):
-    def __init__(self):
+    def __init__(self, num_heads, in_dim, dim_ff, dropout):
         super(DecodingLayer).__init__()
+        # might need Net()
+        self.atn1 = MultiHeadAttention(num_heads, in_dim, dim_ff, dropout)
+        self.atn2 = MultiHeadAttention(num_heads, in_dim, dim_ff, dropout)
+        self.ff = Net(dropout, in_dim, dim_ff)
 
 
 class Decoder(nn.Module()):
