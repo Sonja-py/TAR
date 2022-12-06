@@ -22,6 +22,7 @@ class ScaledDotAttention(nn.Module):
 class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, in_dim, k_dim, a_dropout=.1):
         super(MultiHeadAttention, self).__init__()
+        self.in_dim = in_dim
         self.q = nn.Linear(in_dim, num_heads * k_dim)
         self.k = nn.Linear(in_dim, num_heads * k_dim)
         self.v = nn.Linear(in_dim, num_heads * k_dim)
@@ -30,12 +31,14 @@ class MultiHeadAttention(nn.Module):
         self.dropout = nn.Dropout(a_dropout)
         self.num_heads = num_heads
         self.size = k_dim
+        self.linear = nn.Linear(num_heads*k_dim, in_dim)
+        self.norm = nn.LayerNorm(in_dim)
 
     def forward(self, q, k, v):
-        batch, q_len = q.size()
+        batch, q_len = q.size(0), q.size(1)
         k_len = k.size(1)
         v_len = v.size(1)
-
+        res = q
         q = self.q(q).view(batch, q_len, self.num_heads, self.size)
         k = self.k(k).view(batch, k_len, self.num_heads, self.size)
         v = self.v(v).view(batch, v_len, self.num_heads, self.size)
@@ -45,9 +48,11 @@ class MultiHeadAttention(nn.Module):
         v = v.permute(2, 0, 1, 3).contiguous().view(-1, v_len, self.size)
 
         out, atn = self.attention(q, k, v)
-        out = out.view(self.num_heads, batch, q_len, self.dim_value)
+        out = out.view(self.num_heads, batch, q_len, self.size)
         out = out.permute(1, 2, 0, 3).contiguous().view(batch, q_len, -1)
+        out = self.linear(out)
         out = self.dropout(out)
+        out = self.norm(out+res)
 
         return out, atn
 
@@ -92,9 +97,13 @@ class Net(nn.Module):
         self.layer = nn.LayerNorm(dim)
 
     def forward(self, input):
+        # print(input.shape)
         res = input[0]
-        out = self.sub(input)
-        return self.layer(res + self.dropout(out))
+        out = self.sub(input, input, input)
+        # print(out[0].shape)
+        if isinstance(out, tuple):
+            return self.layer(out[0] + res), out[1]
+        return self.layer(out+res)
 
 
 class EncodingLayer(nn.Module):
@@ -104,7 +113,7 @@ class EncodingLayer(nn.Module):
         self.forward = Net(FeedForward(dropout, dim_in, dim_ff), dim_in, dropout)
 
     def forward(self, input):
-        out, atn = self.attention(input, input, input)
+        out, atn = self.attention(input)
         out = self.forward(out)
         return out, atn
 
@@ -174,13 +183,18 @@ class Transformer(nn.Module):
         self.decoder = Decoder(num_layers, num_classes, num_heads, dim_emb, dim_in, dim_ff, maxlen, dropout)
     def forward(self, input, targets):
         # out = self.feature_extractor(input)
-        out = self.decoder(targets, self.encoder(input))
+        print("encoding uwu")
+        enc = self.encoder(input)
+        print("decoding owo")
+        out = self.decoder(targets, enc)
         return out
 
 if __name__ == "__main__":
-    src = torch.rand(64, 32, 512)
-    tgt = torch.rand(64, 16, 512)
+    src = torch.rand(64, 32, 512).is_cuda
+    tgt = torch.rand(64, 16, 512).is_cuda
+    device = torch.device("cuda")
     model = Transformer(6, 6, 8, 512, 512, 2048, 2000, .01)
+    model = model.to(device)
     out = model(src, tgt)
     print(out.shape)
 
