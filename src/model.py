@@ -24,9 +24,9 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, in_dim, k_dim, a_dropout=.1):
         super().__init__()
         self.in_dim = in_dim
-        self.q = nn.Linear(in_dim, num_heads * k_dim)
-        self.k = nn.Linear(in_dim, num_heads * k_dim)
-        self.v = nn.Linear(in_dim, num_heads * k_dim)
+        self.q_l = nn.Linear(in_dim, num_heads * k_dim)
+        self.k_l = nn.Linear(in_dim, num_heads * k_dim)
+        self.v_l = nn.Linear(in_dim, num_heads * k_dim)
         self.attention = ScaledDotAttention(a_dropout, k_dim / num_heads)
         self.sqrt = np.sqrt(in_dim)
         self.dropout = nn.Dropout(a_dropout)
@@ -41,9 +41,10 @@ class MultiHeadAttention(nn.Module):
         v_len = v.size(1)
         batch = v.size(0)
         res = q
-        q = self.q(q).view(batch, q_len, self.num_heads, self.size)
-        k = self.k(k).view(batch, k_len, self.num_heads, self.size)
-        v = self.v(v).view(batch, v_len, self.num_heads, self.size)
+        print(q.shape)
+        q = self.q_l(q).view(batch, q_len, self.num_heads, self.size)
+        k = self.k_l(k).view(batch, k_len, self.num_heads, self.size)
+        v = self.v_l(v).view(batch, v_len, self.num_heads, self.size)
 
         q = q.permute(2, 0, 1, 3).contiguous().view(-1, q_len, self.size)
         k = k.permute(2, 0, 1, 3).contiguous().view(-1, k_len, self.size)
@@ -70,8 +71,9 @@ class PositionalEncoding(nn.Module):
         pe = pe.unsqueeze(0)
         self.register_buffer('pe', pe)
 
-    def forward(self, inp):
-        return self.pe[:, :inp.size(1)]
+    def forward(self, inp, size):
+        print(self.pe.shape)
+        return self.pe[:, :size]
 
 
 class FeedForward(nn.Module):
@@ -98,13 +100,17 @@ class Net(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.layer = nn.LayerNorm(dim)
 
-    def forward(self, input):
+    def forward(self, *inputs):
         # print(input.shape)
-        res = input[0]
-        if isinstance(self.sub, FeedForward):
-            out = self.sub(input)
-        elif isinstance(self.sub, MultiHeadAttention):
-            out = self.sub(input, input, input)
+        res = inputs[0]
+        # if isinstance(self.sub, FeedForward):
+        #     out = self.sub(input)
+        # elif isinstance(self.sub, MultiHeadAttention):
+        #     # print("for shapes")
+        #     # print(input.shape)
+        #     # print(memory.shape)
+        #     out = self.sub(input, memory, memory)
+        out = self.sub(*inputs)
         # print(out[0].shape)
         if isinstance(out, tuple):
             return self.layer(out[0] + res), out[1]
@@ -118,7 +124,7 @@ class EncodingLayer(nn.Module):
         self.ff = Net(FeedForward(dropout, dim_in, dim_ff), dim_in, dropout)
 
     def forward(self, input):
-        out, atn = self.attention(input)
+        out, atn = self.attention(input, input, input)
         out = self.ff(out)
         return out, atn
 
@@ -137,9 +143,8 @@ class Encoder(nn.Module):
     def forward(self, input):
         encoder_self_attn_list = []
         # print(type(input))
-        pos = input + self.pos_encoding(input)
+        pos = input + self.pos_encoding(input, input.size(1))
         out = self.drop(pos)
-        i = 0
         for layer in self.layers:
             encoder_output, self_attn = layer(out)
             encoder_self_attn_list += [self_attn]
@@ -155,8 +160,8 @@ class DecodingLayer(nn.Module):
         self.ff = Net(FeedForward(dropout, in_dim, dim_ff), in_dim, dropout)
 
     def forward(self, input, memory):
-        input = self.atn1(input, input, input)
-        input = self.atn2(input, memory, memory)
+        dec = self.atn1(input, input, input)
+        input = self.atn2(dec, memory, memory)
         return self.ff(input)
 
 
@@ -173,8 +178,9 @@ class Decoder(nn.Module):
         self.fc = nn.Linear(dim_in, num_classes, bias=False)
 
     def forward(self, inputs, memory):
-        out = self.embedding(inputs.long())
-        out += self.pos(inputs)
+        print("mem shape")
+        print(memory.shape)
+        out = self.embedding(inputs.long()) + self.pos(inputs, memory.size(2))
         out = self.dropout(out)
         for layer in self.layers:
             out, dec_atn, mem_atn = layer(out, memory)
@@ -193,7 +199,7 @@ class Transformer(nn.Module):
         print("encoding :>")
         enc = self.encoder(input)
         print("decoding ...")
-        out = self.decoder(targets, enc)
+        out = self.decoder(targets, enc[0])
         return out
 
 if __name__ == "__main__":
