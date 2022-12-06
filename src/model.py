@@ -6,7 +6,7 @@ from transformers import Wav2Vec2FeatureExtractor
 
 class ScaledDotAttention(nn.Module):
     def __init__(self, a_dropout, a_dim):
-        super(ScaledDotAttention, self).__init__()
+        super().__init__()
         self.dropout = nn.Dropout(a_dropout)
         self.softmax = nn.Softmax(dim=2)
         self.sqrt = np.sqrt(a_dim)
@@ -14,7 +14,7 @@ class ScaledDotAttention(nn.Module):
     def forward(self, q, k, v):
         atn = torch.bmm(q, k.transpose(1, 2)) / self.sqrt
         atn = self.softmax(atn)
-        print(atn)
+        # print(atn)
         atn = self.dropout(atn)
         out = torch.bmm(atn, v)
         return out, atn
@@ -22,7 +22,7 @@ class ScaledDotAttention(nn.Module):
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, in_dim, k_dim, a_dropout=.1):
-        super(MultiHeadAttention, self).__init__()
+        super().__init__()
         self.in_dim = in_dim
         self.q = nn.Linear(in_dim, num_heads * k_dim)
         self.k = nn.Linear(in_dim, num_heads * k_dim)
@@ -61,7 +61,7 @@ class MultiHeadAttention(nn.Module):
 
 class PositionalEncoding(nn.Module):
     def __init__(self, dim, max_len):
-        super(PositionalEncoding, self).__init__()
+        super().__init__()
         pe = torch.zeros(max_len, dim, requires_grad=False)
         pos = torch.arange(0, max_len).unsqueeze(1).type(torch.FloatTensor)
         term = torch.exp(torch.arange(0, dim, 2).type(torch.FloatTensor) * -(np.log(10000.0) / dim))
@@ -76,7 +76,7 @@ class PositionalEncoding(nn.Module):
 
 class FeedForward(nn.Module):
     def __init__(self, dropout, dim_in, dim_ff):
-        super(FeedForward, self).__init__()
+        super().__init__()
         # print(dim_in)
         # print(dim_ff)
         self.ff = nn.Sequential(
@@ -93,7 +93,7 @@ class FeedForward(nn.Module):
 
 class Net(nn.Module):
     def __init__(self, sub, dim, dropout):
-        super(Net, self).__init__()
+        super().__init__()
         self.sub = sub
         self.dropout = nn.Dropout(dropout)
         self.layer = nn.LayerNorm(dim)
@@ -110,20 +110,20 @@ class Net(nn.Module):
 
 class EncodingLayer(nn.Module):
     def __init__(self, num_heads, dim_in, dim_ff, dropout=.01):
-        super(EncodingLayer, self).__init__()
+        super().__init__()
         self.attention = Net(MultiHeadAttention(num_heads, dim_in, dim_ff, dropout), dim_in, dropout)
-        self.forward = Net(FeedForward(dropout, dim_in, dim_ff), dim_in, dropout)
+        self.ff = Net(FeedForward(dropout, dim_in, dim_ff), dim_in, dropout)
 
     def forward(self, input):
         out, atn = self.attention(input)
-        out = self.forward(out)
+        out = self.ff(out)
         return out, atn
 
 
 class Encoder(nn.Module):
     # mask?
     def __init__(self, num_layers, num_heads, dim_in, dim_ff, dropout, maxlen):
-        super(Encoder, self).__init__()
+        super().__init__()
         self.drop = nn.Dropout(dropout)
         self.pos_encoding = PositionalEncoding(dim_in, maxlen)
         self.layers = nn.ModuleList([
@@ -133,9 +133,10 @@ class Encoder(nn.Module):
 
     def forward(self, input):
         encoder_self_attn_list = []
-        print(type(input))
+        # print(type(input))
         pos = input + self.pos_encoding(input)
         out = self.drop(pos)
+        i = 0
         for layer in self.layers:
             encoder_output, self_attn = layer(out)
             encoder_self_attn_list += [self_attn]
@@ -145,7 +146,7 @@ class Encoder(nn.Module):
 
 class DecodingLayer(nn.Module):
     def __init__(self, num_heads, in_dim, dim_ff, dropout):
-        super(DecodingLayer, self).__init__()
+        super().__init__()
         self.atn1 = Net(MultiHeadAttention(num_heads, in_dim, dim_ff, dropout), in_dim, dropout)
         self.atn2 = Net(MultiHeadAttention(num_heads, in_dim, dim_ff, dropout), in_dim, dropout)
         self.ff = Net(FeedForward(dropout, in_dim, dim_ff), in_dim, dropout)
@@ -158,7 +159,7 @@ class DecodingLayer(nn.Module):
 
 class Decoder(nn.Module):
     def __init__(self, num_layers, num_classes, num_heads, dim_emb, dim_in, dim_ff, maxlen, dropout):
-        super(Decoder, self).__init__()
+        super().__init__()
         self.dropout = nn.Dropout(dropout)
         self.embedding = nn.Embedding(num_classes, dim_emb)
         self.pos = PositionalEncoding(dim_in, maxlen)
@@ -180,7 +181,7 @@ class Decoder(nn.Module):
 
 class Transformer(nn.Module):
     def __init__(self, num_layers, num_classes, num_heads, dim_emb, dim_in, dim_ff, maxlen, dropout):
-        super(Transformer, self).__init__()
+        super().__init__()
         # self.feature_extractor = Wav2Vec2FeatureExtractor()
         self.encoder = Encoder(num_layers, num_heads, dim_in, dim_ff, dropout, maxlen)
         self.decoder = Decoder(num_layers, num_classes, num_heads, dim_emb, dim_in, dim_ff, maxlen, dropout)
@@ -193,8 +194,8 @@ class Transformer(nn.Module):
         return out
 
 if __name__ == "__main__":
-    # torch.cuda.empty_cache()
-    # device = torch.device("cuda")
+    torch.cuda.empty_cache()
+    device = torch.device("cuda")
     src = torch.rand(16, 16, 128)
     tgt = torch.rand(16, 8, 128)
     model = Transformer(6, 6, 8, 128, 128, 512, 1000, .01)
