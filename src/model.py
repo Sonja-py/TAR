@@ -10,10 +10,8 @@ class ScaledDotAttention(nn.Module()):
         self.softmax = nn.Softmax(dim=2)
         self.sqrt = np.sqrt(a_dim)
 
-    def forward(self, q, k, v, mask=None):
+    def forward(self, q, k, v):
         atn = torch.bmm(q, k.transpose(1, 2)) / self.sqrt
-        if mask is not None:
-            atn = atn.masked_fill(mask, -np.inf)
         atn = self.softmax(atn)
         atn = self.dropout(atn)
         out = torch.bmm(atn, v)
@@ -32,7 +30,7 @@ class MultiHeadAttention(nn.Module()):
         self.num_heads = num_heads
         self.size = k_dim
 
-    def forward(self, q, k, v, mask=None):
+    def forward(self, q, k, v):
         batch, q_len = q.size()
         k_len = k.size(1)
         v_len = v.size(1)
@@ -45,10 +43,7 @@ class MultiHeadAttention(nn.Module()):
         k = k.permute(2, 0, 1, 3).contiguous().view(-1, k_len, self.size)
         v = v.permute(2, 0, 1, 3).contiguous().view(-1, v_len, self.size)
 
-        if mask is not None:
-            mask = mask.repeat(self.num_heads, 1, 1)
-
-        out, atn = self.attention(q, k, v, mask)
+        out, atn = self.attention(q, k, v)
         out = out.view(self.num_heads, batch, q_len, self.dim_value)
         out = out.permute(1, 2, 0, 3).contiguous().view(batch, q_len, -1)
         out = self.dropout(out)
@@ -97,16 +92,37 @@ class EncodingLayer(nn.Module):
         self.attention = MultiHeadAttention(num_heads, dim_in, dropout)
         self.forward = Net(dropout, dim_in, dim_ff)
 
-    def forward(self, input, mask = None):
-        out, atn = self.self_attention(input, input, input, mask)
+    def forward(self, input):
+        out, atn = self.self_attention(input, input, input)
         out = self.forward(out)
         return out, atn
 
-class Encoder():
-    def __init__(self, num_layers, num_heads, dim_in, dim_ff, dropout, maxlen):
+
+class Encoder(nn.Module()):
+    def __init__(self, num_heads, dim_in, dim_ff, dropout, maxlen):
+        super(Encoder).__init__()
+        self.dropout = nn.Dropout(dropout)
+        self.pos_encoding = PositionalEncoding(dim_in, maxlen)
+        self.layers = nn.ModuleList([
+            EncodingLayer(num_heads, dim_in, dim_ff, dropout)
+        ])
+
+    def forward(self, input, input_len):
+        encoder_self_attn_list = []
+        pos = self.pos_encoding(input)
+        for layer in self.layers:
+            encoder_output, self_attn = layer(pos + input)
+            encoder_self_attn_list += [self_attn]
+
+        return encoder_output, encoder_self_attn_list
+
+
+class DecodingLayer(nn.Module()):
+    def __init__(self):
+        super(DecodingLayer).__init__()
+
+
+class Decoder(nn.Module()):
+    def __init__(self):
         pass
-
-
-
-
 
