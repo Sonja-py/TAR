@@ -1,11 +1,12 @@
 from torch import nn
 import torch
 import numpy as np
+from transformers import Wav2Vec2FeatureExtractor
 
 
-class ScaledDotAttention(nn.Module()):
+class ScaledDotAttention(nn.Module):
     def __init__(self, a_dropout, a_dim):
-        super(ScaledDotAttention).__init__()
+        super(ScaledDotAttention, self).__init__()
         self.dropout = nn.Dropout(a_dropout)
         self.softmax = nn.Softmax(dim=2)
         self.sqrt = np.sqrt(a_dim)
@@ -18,9 +19,9 @@ class ScaledDotAttention(nn.Module()):
         return out, atn
 
 
-class MultiHeadAttention(nn.Module()):
+class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, in_dim, k_dim, a_dropout=.1):
-        super(MultiHeadAttention).__init__()
+        super(MultiHeadAttention, self).__init__()
         self.q = nn.Linear(in_dim, num_heads * k_dim)
         self.k = nn.Linear(in_dim, num_heads * k_dim)
         self.v = nn.Linear(in_dim, num_heads * k_dim)
@@ -51,9 +52,9 @@ class MultiHeadAttention(nn.Module()):
         return out, atn
 
 
-class PositionalEncoding(nn.Module()):
+class PositionalEncoding(nn.Module):
     def __init__(self, dim, max_len):
-        super(PositionalEncoding).__init__()
+        super(PositionalEncoding, self).__init__()
         pe = torch.zeros(max_len, dim, requires_grad=False)
         pos = torch.arange(0, max_len).unsqueeze(1).type(torch.FloatTensor)
         term = torch.exp(torch.arange(0, dim, 2).type(torch.FloatTensor) * -(np.log(10000.0) / dim))
@@ -66,9 +67,11 @@ class PositionalEncoding(nn.Module()):
         return self.pe[:, :inp.size(1)]
 
 
-class FeedForward(nn.Module()):
+class FeedForward(nn.Module):
     def __init__(self, dropout, dim_in, dim_ff):
-        super(FeedForward).__init__()
+        super(FeedForward, self).__init__()
+        # print(dim_in)
+        # print(dim_ff)
         self.ff = nn.Sequential(
             nn.Linear(dim_in, dim_ff),
             nn.Dropout(dropout),
@@ -81,9 +84,9 @@ class FeedForward(nn.Module()):
         return self.ff(input)
 
 
-class Net(nn.Module()):
+class Net(nn.Module):
     def __init__(self, sub, dim, dropout):
-        super(Net).__init__()
+        super(Net, self).__init__()
         self.sub = sub
         self.dropout = nn.Dropout(dropout)
         self.layer = nn.LayerNorm(dim)
@@ -96,21 +99,21 @@ class Net(nn.Module()):
 
 class EncodingLayer(nn.Module):
     def __init__(self, num_heads, dim_in, dim_ff, dropout=.01):
-        super(EncodingLayer).__init__()
+        super(EncodingLayer, self).__init__()
         self.attention = Net(MultiHeadAttention(num_heads, dim_in, dim_ff, dropout), dim_in, dropout)
         self.forward = Net(FeedForward(dropout, dim_in, dim_ff), dim_in, dropout)
 
     def forward(self, input):
-        out, atn = self.self_attention(input, input, input)
+        out, atn = self.attention(input, input, input)
         out = self.forward(out)
         return out, atn
 
 
-class Encoder(nn.Module()):
+class Encoder(nn.Module):
     # mask?
     def __init__(self, num_layers, num_heads, dim_in, dim_ff, dropout, maxlen):
-        super(Encoder).__init__()
-        self.dropout = nn.Dropout(dropout)
+        super(Encoder, self).__init__()
+        self.drop = nn.Dropout(dropout)
         self.pos_encoding = PositionalEncoding(dim_in, maxlen)
         self.layers = nn.ModuleList([
             EncodingLayer(num_heads, dim_in, dim_ff, dropout)
@@ -119,20 +122,21 @@ class Encoder(nn.Module()):
 
     def forward(self, input):
         encoder_self_attn_list = []
-        pos = self.pos_encoding(input)
+        pos = self.pos_encoding(input) + input
+        out = self.drop(pos)
         for layer in self.layers:
-            encoder_output, self_attn = layer(pos + input)
+            encoder_output, self_attn = layer(out)
             encoder_self_attn_list += [self_attn]
 
         return encoder_output, encoder_self_attn_list
 
 
-class DecodingLayer(nn.Module()):
+class DecodingLayer(nn.Module):
     def __init__(self, num_heads, in_dim, dim_ff, dropout):
-        super(DecodingLayer).__init__()
+        super(DecodingLayer, self).__init__()
         self.atn1 = Net(MultiHeadAttention(num_heads, in_dim, dim_ff, dropout), in_dim, dropout)
         self.atn2 = Net(MultiHeadAttention(num_heads, in_dim, dim_ff, dropout), in_dim, dropout)
-        self.ff = Net(FeedForward(dropout, in_dim, dim_ff), in_dim, dim_ff)
+        self.ff = Net(FeedForward(dropout, in_dim, dim_ff), in_dim, dropout)
 
     def forward(self, input, memory):
         input = self.atn1(input, input, input)
@@ -140,12 +144,12 @@ class DecodingLayer(nn.Module()):
         return self.ff(input)
 
 
-class Decoder(nn.Module()):
-    def __init__(self, num_layers, num_classes, num_heads, dim_emb, dim_in, dim_ff, max_len, dropout):
-        super(Decoder).__init__()
+class Decoder(nn.Module):
+    def __init__(self, num_layers, num_classes, num_heads, dim_emb, dim_in, dim_ff, maxlen, dropout):
+        super(Decoder, self).__init__()
         self.dropout = nn.Dropout(dropout)
         self.embedding = nn.Embedding(num_classes, dim_emb)
-        self.pos = PositionalEncoding(dim_in, max_len)
+        self.pos = PositionalEncoding(dim_in, maxlen)
         self.layers = nn.ModuleList([
             DecodingLayer(num_heads, dim_in, dim_ff, dropout)
             for _ in range(num_layers)
@@ -161,4 +165,24 @@ class Decoder(nn.Module()):
         out = self.fc(out)
         out = torch.softmax(out, dim=-1)
         return out
+
+class Transformer(nn.Module):
+    def __init__(self, num_layers, num_classes, num_heads, dim_emb, dim_in, dim_ff, maxlen, dropout):
+        super(Transformer, self).__init__()
+        # self.feature_extractor = Wav2Vec2FeatureExtractor()
+        self.encoder = Encoder(num_layers, num_heads, dim_in, dim_ff, dropout, maxlen)
+        self.decoder = Decoder(num_layers, num_classes, num_heads, dim_emb, dim_in, dim_ff, maxlen, dropout)
+    def forward(self, input, targets):
+        # out = self.feature_extractor(input)
+        out = self.decoder(targets, self.encoder(input))
+        return out
+
+if __name__ == "__main__":
+    src = torch.rand(64, 32, 512)
+    tgt = torch.rand(64, 16, 512)
+    model = Transformer(6, 6, 8, 512, 512, 2048, 2000, .01)
+    out = model(src, tgt)
+    print(out.shape)
+
+
 
