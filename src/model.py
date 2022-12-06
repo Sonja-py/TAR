@@ -66,31 +66,38 @@ class PositionalEncoding(nn.Module()):
         return self.pe[:, :inp.size(1)]
 
 
-class Net(nn.Module()):
+class FeedForward(nn.Module()):
     def __init__(self, dropout, dim_in, dim_ff):
-        super(Net).__init__()
-        self.fc1 = nn.Linear(dim_in, dim_ff)
-        self.fc2 = nn.Linear(dim_ff, dim_in)
-        self.dropout = nn.Dropout(dropout)
-        self.relu = nn.ReLU()
-        self.norm = nn.LayerNorm(dim_in)
+        super(FeedForward).__init__()
+        self.ff = nn.Sequential(
+            nn.Linear(dim_in, dim_ff),
+            nn.Dropout(dropout),
+            nn.ReLU(),
+            nn.Linear(dim_ff, dim_in),
+            nn.Dropout(dropout)
+        )
 
     def forward(self, input):
-        res = input
-        out = self.fc1(input)
-        out = self.dropout(out)
-        out = self.relu(out)
-        out = self.fc2(out)
-        out = self.dropout(out)
-        out = self.layer_norm(out + res)
-        return out
+        return self.ff(input)
+
+
+class Net(nn.Module()):
+    def __init__(self, sub, dim, dropout):
+        self.sub = sub
+        self.dropout = nn.Dropout(dropout)
+        self.layer = nn.LayerNorm(dim)
+
+    def forward(self, input):
+        res = input[0]
+        out = self.sub(input)
+        return self.layer(res + self.dropout(out))
 
 
 class EncodingLayer(nn.Module):
     def __init__(self, num_heads, dim_in, dim_ff, dropout=.01):
         super(EncodingLayer).__init__()
-        self.attention = MultiHeadAttention(num_heads, dim_in, dropout)
-        self.forward = Net(dropout, dim_in, dim_ff)
+        self.attention = Net(MultiHeadAttention(num_heads, dim_in, dim_ff, dropout), dim_in, dropout)
+        self.forward = Net(FeedForward(dropout, dim_in, dim_ff), dim_in, dropout)
 
     def forward(self, input):
         out, atn = self.self_attention(input, input, input)
@@ -99,7 +106,7 @@ class EncodingLayer(nn.Module):
 
 
 class Encoder(nn.Module()):
-    #mask?
+    # mask?
     def __init__(self, num_heads, dim_in, dim_ff, dropout, maxlen):
         super(Encoder).__init__()
         self.dropout = nn.Dropout(dropout)
@@ -121,13 +128,16 @@ class Encoder(nn.Module()):
 class DecodingLayer(nn.Module()):
     def __init__(self, num_heads, in_dim, dim_ff, dropout):
         super(DecodingLayer).__init__()
-        # might need Net()
-        self.atn1 = MultiHeadAttention(num_heads, in_dim, dim_ff, dropout)
-        self.atn2 = MultiHeadAttention(num_heads, in_dim, dim_ff, dropout)
-        self.ff = Net(dropout, in_dim, dim_ff)
+        self.atn1 = Net(MultiHeadAttention(num_heads, in_dim, dim_ff, dropout), in_dim, dropout)
+        self.atn2 = Net(MultiHeadAttention(num_heads, in_dim, dim_ff, dropout), in_dim, dropout)
+        self.ff = Net(FeedForward(dropout, in_dim, dim_ff), in_dim, dim_ff)
+
+    def forward(self, input, memory):
+        input = self.atn1(input, input, input)
+        input = self.atn2(input, memory, memory)
+        return self.ff(input)
 
 
 class Decoder(nn.Module()):
     def __init__(self):
         pass
-
