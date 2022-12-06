@@ -101,7 +101,10 @@ class Net(nn.Module):
     def forward(self, input):
         # print(input.shape)
         res = input[0]
-        out = self.sub(input, input, input)
+        if isinstance(self.sub, FeedForward):
+            out = self.sub(input)
+        elif isinstance(self.sub, MultiHeadAttention):
+            out = self.sub(input, input, input)
         # print(out[0].shape)
         if isinstance(out, tuple):
             return self.layer(out[0] + res), out[1]
@@ -170,7 +173,7 @@ class Decoder(nn.Module):
         self.fc = nn.Linear(dim_in, num_classes, bias=False)
 
     def forward(self, inputs, memory):
-        out = self.embedding(inputs)
+        out = self.embedding(inputs.long())
         out += self.pos(inputs)
         out = self.dropout(out)
         for layer in self.layers:
