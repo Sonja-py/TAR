@@ -14,6 +14,7 @@ class ScaledDotAttention(nn.Module):
     def forward(self, q, k, v):
         atn = torch.bmm(q, k.transpose(1, 2)) / self.sqrt
         atn = self.softmax(atn)
+        print(atn)
         atn = self.dropout(atn)
         out = torch.bmm(atn, v)
         return out, atn
@@ -35,9 +36,10 @@ class MultiHeadAttention(nn.Module):
         self.norm = nn.LayerNorm(in_dim)
 
     def forward(self, q, k, v):
-        batch, q_len = q.size(0), q.size(1)
+        q_len = q.size(1)
         k_len = k.size(1)
         v_len = v.size(1)
+        batch = v.size(0)
         res = q
         q = self.q(q).view(batch, q_len, self.num_heads, self.size)
         k = self.k(k).view(batch, k_len, self.num_heads, self.size)
@@ -131,7 +133,8 @@ class Encoder(nn.Module):
 
     def forward(self, input):
         encoder_self_attn_list = []
-        pos = self.pos_encoding(input) + input
+        print(type(input))
+        pos = input + self.pos_encoding(input)
         out = self.drop(pos)
         for layer in self.layers:
             encoder_output, self_attn = layer(out)
@@ -183,18 +186,19 @@ class Transformer(nn.Module):
         self.decoder = Decoder(num_layers, num_classes, num_heads, dim_emb, dim_in, dim_ff, maxlen, dropout)
     def forward(self, input, targets):
         # out = self.feature_extractor(input)
-        print("encoding uwu")
+        print("encoding :>")
         enc = self.encoder(input)
-        print("decoding owo")
+        print("decoding ...")
         out = self.decoder(targets, enc)
         return out
 
 if __name__ == "__main__":
-    src = torch.rand(64, 32, 512).is_cuda
-    tgt = torch.rand(64, 16, 512).is_cuda
-    device = torch.device("cuda")
-    model = Transformer(6, 6, 8, 512, 512, 2048, 2000, .01)
-    model = model.to(device)
+    # torch.cuda.empty_cache()
+    # device = torch.device("cuda")
+    src = torch.rand(16, 16, 128)
+    tgt = torch.rand(16, 8, 128)
+    model = Transformer(6, 6, 8, 128, 128, 512, 1000, .01)
+    model = model
     out = model(src, tgt)
     print(out.shape)
 
