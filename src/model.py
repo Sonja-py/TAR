@@ -83,6 +83,7 @@ class FeedForward(nn.Module()):
 
 class Net(nn.Module()):
     def __init__(self, sub, dim, dropout):
+        super(Net).__init__()
         self.sub = sub
         self.dropout = nn.Dropout(dropout)
         self.layer = nn.LayerNorm(dim)
@@ -107,15 +108,16 @@ class EncodingLayer(nn.Module):
 
 class Encoder(nn.Module()):
     # mask?
-    def __init__(self, num_heads, dim_in, dim_ff, dropout, maxlen):
+    def __init__(self, num_layers, num_heads, dim_in, dim_ff, dropout, maxlen):
         super(Encoder).__init__()
         self.dropout = nn.Dropout(dropout)
         self.pos_encoding = PositionalEncoding(dim_in, maxlen)
         self.layers = nn.ModuleList([
             EncodingLayer(num_heads, dim_in, dim_ff, dropout)
+            for _ in range(num_layers)
         ])
 
-    def forward(self, input, input_len):
+    def forward(self, input):
         encoder_self_attn_list = []
         pos = self.pos_encoding(input)
         for layer in self.layers:
@@ -139,5 +141,24 @@ class DecodingLayer(nn.Module()):
 
 
 class Decoder(nn.Module()):
-    def __init__(self):
-        pass
+    def __init__(self, num_layers, num_classes, num_heads, dim_emb, dim_in, dim_ff, max_len, dropout):
+        super(Decoder).__init__()
+        self.dropout = nn.Dropout(dropout)
+        self.embedding = nn.Embedding(num_classes, dim_emb)
+        self.pos = PositionalEncoding(dim_in, max_len)
+        self.layers = nn.ModuleList([
+            DecodingLayer(num_heads, dim_in, dim_ff, dropout)
+            for _ in range(num_layers)
+        ])
+        self.fc = nn.Linear(dim_in, num_classes, bias=False)
+
+    def forward(self, inputs, memory):
+        out = self.embedding(inputs)
+        out += self.pos(inputs)
+        out = self.dropout(out)
+        for layer in self.layers:
+            out, dec_atn, mem_atn = layer(out, memory)
+        out = self.fc(out)
+        out = torch.softmax(out, dim=-1)
+        return out
+
