@@ -1,102 +1,114 @@
 import os
+import numpy as np
 import torch
+import torch.nn as nn
 import torchaudio
 import torchaudio.transforms as transforms
 
-# Creates a 2D tensor of integers to represent each sentence. Each 1D tensor
-# stores the ASCII encoding of every character in a word.
-def text_to_int(transcript):
-  transcript = transcript.strip().split()
-  max_word_length = 0
+import wer
 
-  # Encode each character in ASCII and determine the longest word
-  words_ascii = []
-  for word in transcript:
-    words_ascii.append(torch.ByteTensor(list(bytes(word, 'utf8'))))
-    max_word_length = max(words_ascii[-1].size()[0], max_word_length)
+'''Encode text and decode numeric output from model (one hot)'''
+def encode_text(text):
+    labels = [ord(letter) for letter in text]
+    return labels
 
-  # Adds 0s to pad shorter words
-  out = torch.zeros((len(words_ascii), max_word_length), dtype=torch.uint8)
-  for i, x in enumerate(words_ascii):
-      out[i, 0:x.size()[0]] = x
-  
-  return out
+def decode_text(label):
+    char = [chr(num) for num in label]
+    text = ''.join([str(elem) for elem in char])
+    return text
 
+train_transforms = nn.Sequential(
+    transforms.MelSpectrogram(sample_rate=16000, n_mels=128),
+    transforms.FrequencyMasking(15),
+    transforms.TimeMasking(35)
+)
+test_transforms = transforms.MelSpectrogram(sample_rate=16000, n_mels=128)
+
+'''Extracts waveform and transcript from tuple of data for each audio sample
+Transforms into spectrogram and calculates 
+length of waveform and transcript for use in CTC loss'''
+def process_data(data, data_type):
+    size = len(data)
+    spectrograms = [0]*size
+    labels = [0]*size
+    input_len = [0]*size
+    label_len = [0]*size
+    idx = 0
+    
+    for item in data:
+        if data_type == 'train':
+            spec = train_transforms(item[0])
+        else:
+            spec = test_transforms(item[0])
+        spectrograms[idx] = spec.transpose(0,2).squeeze()  # Make variable dim the singleton dim for padding later
+        label = torch.Tensor(encode_text(item[2].lower()))
+        labels[idx] = label
+        input_len[idx] = len(spectrograms)//2  # Calculate length before padding
+        label_len[idx] = len(label)
+        idx += 1
+        
+    spectrograms = nn.utils.rnn.pad_sequence(spectrograms, batch_first=True).unsqueeze(1)
+    labels = nn.utils.rnn.pad_sequence(labels, batch_first=True)
+    
+    return spectrograms, labels, input_len, label_len
+
+def accuracy(output, transcript):
+    encoded_chars = torch.argmax(output, dim=2)
+    encoded_chars = encoded_chars[encoded_chars!=0]  # Remove blanks
+    prediction = decode_text(encoded_chars)
+    return wer.wer(prediction, transcript)
+
+'''Loads audio data and transcripts
+Call load_l2arctic() or load_librispeech separately
+To train with both datasets, combine train/test datasets
+then run process_data() on combined arrays'''
 class input_data():
 
-  def load_l2arctic(self):
+    def load_l2arctic(self):
 
-    # Returns 2D array: speaker, audio
-    def load_audio():
-      audio = [0]*17
-      for speaker in range(17):
-        print(speaker)
-        files = os.listdir('../l2arctic_recordings/'+str(speaker))
-        individual_audio = [0]*1131
-        i=0
-        for file in files:
-          waveform, sample_rate = torchaudio.load(file)
-          
-          # Match sampling rate between corpuses
-          resample = transforms.Resample(sample_rate, 16000)
-          waveform = resample(waveform)
+        def load_audio():
+            audio = [0]*17*1131
+#           audio = [0]*17
+            idx=0
 
-          individual_audio[i] = waveform
-          i+=1
-        audio[speaker] = individual_audio
-      return audio
+            for speaker in range(17):
+                files = os.listdir('../l2arctic_recordings/'+str(speaker))
+#               individual_audio = [0]*1131
+                for file in files:
+                    waveform, sample_rate = torchaudio.load(file)
+                    
+                    # Match sampling rate between corpuses
+                    resample = torchaudio.transforms.Resample(sample_rate, 16000)
+                    waveform = resample(waveform)
+
+#                    individual_audio[idx] = waveform
+                    audio[idx] = waveform
+                    idx+=1
+#                    audio[speaker] = individual_audio
+            return audio
     
-    # Returns array of tensors for each transcript
-    def load_transcript():
-#      transcript_sentences = [0]*1131
-      transcript_words = [0]*1131
-      arctic_f = open('../arctic_transcript.txt', 'r')
-      i = 0
-      for line in arctic_f:
-        line = line.strip()
-#        transcript_sentences[i] = line
-        transcript_words[i] = text_to_int(line.split())
-        i+=1
-      arctic_f.close()
-      return transcript_words
+        audio = load_audio()
+        transcript = np.loadtxt('../arctic_transcript.txt', 'r')
 
-    audio = load_audio()
-    transcript = load_transcript()
+        # Separate into training/testing data sets
+        train_data = [0]*904
+        test_data = [0]*225
+        train_idx = 0
+        test_idx = 0
+        i = 0
+        for item in (audio, transcript):
+            if (i%5 == 0):
+                test_data[test_idx] = item
+                test_idx+=1
+            else:
+                train_data[train_idx] = item
+                train_idx+=1
+            i+=1
+        
+        return train_data, test_data
 
-    # Separate into training/testing data sets
-    train_data = [0]*904
-    test_data = [0]*225
-    train_idx = 0
-    test_idx = 0
-    for i in range(len(audio)):
-      if (i%5 == 0):
-        test_data[test_idx] = (audio, transcript)
-        test_idx+=1
-      else:
-        train_data[train_idx] = (audio, transcript)
-        train_idx+=1
+    def load_librispeech(self):
+        train_data = torchaudio.datasets.LIBRISPEECH('./', url='train-clean-100', download=True)
+        test_data = torchaudio.datasets.LIBRISPEECH('./', url='test-clean', download=True)
 
-    return train_data, test_data
-
-  def load_librispeech(self):
-    train_data = torchaudio.datasets.LIBRISPEECH('./', url='train-clean-100', download=True)
-    test_data = torchaudio.datasets.LIBRISPEECH('./', url='test-clean', download=True)
-
-    def load_from_corpus(data):
-
-      audio = [0]*28539
-      label = [0]*28539
-#     speaker = [0]*28539     Could be used if we want to train/test on individual speakers
-      i = 0
-      for (waveform, __, transcript, speaker_id, __, __) in data:
-        audio[i] = (waveform)
-        label[i] = (text_to_int(transcript))
-      #  speaker[i] = (speaker_id)
-        i+=1
-
-      return audio, label
-    
-    train_data = load_from_corpus(train_data)
-    test_data = load_from_corpus(test_data)
-
-    return train_data, test_data
+        return train_data, test_data
