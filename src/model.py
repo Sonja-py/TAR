@@ -36,26 +36,32 @@ class MultiHeadAttention(nn.Module):
         self.norm = nn.LayerNorm(in_dim)
 
     def forward(self, q, k, v):
+
         q_len = q.size(1)
         k_len = k.size(1)
         v_len = v.size(1)
-        batch = q.size(0)
+        batch = v.size(0)
         res = q
-        q = self.q_l(q).view(batch, -1, self.num_heads, self.size)
+        # print(q.shape)
+        q = self.q_l(q)
+        # print(q.shape)
+        q = q.view(batch, -1, self.num_heads, self.size)
         k = self.k_l(k).view(batch, -1, self.num_heads, self.size)
         v = self.v_l(v).view(batch, -1, self.num_heads, self.size)
 
         q = q.permute(2, 0, 1, 3).contiguous().view(batch*self.num_heads, -1, self.size)
         k = k.permute(2, 0, 1, 3).contiguous().view(batch*self.num_heads, -1, self.size)
         v = v.permute(2, 0, 1, 3).contiguous().view(batch*self.num_heads, -1, self.size)
+        # print(q.shape)
         out, atn = self.attention(q, k, v)
         out = out.view(self.num_heads, batch, -1, self.size)
-        out = out.permute(1, 2, 0, 3).contiguous().view(batch, q_len,-1)
-        print(out.shape)
+        out = out.permute(1, 2, 0, 3).contiguous().view(batch, -1,self.num_heads*self.size)
+        # print(out.shape)
+        # print(out.shape)
         out = self.linear(out)
         out = self.dropout(out)
         # print(out.shape)
-        print(res.shape)
+        # print(res.shape)
         out = self.norm(out+res)
 
         return out, atn
@@ -115,6 +121,7 @@ class Net(nn.Module):
         #     # print(memory.shape)
         #     out = self.sub(input, memory, memory)
         out = self.sub(*inputs)
+        # print(res.shape)
         # print(out[0].shape)
         # print(out[0].shape)
         if isinstance(out, tuple):
@@ -166,13 +173,16 @@ class DecodingLayer(nn.Module):
 
     def forward(self, input, memory):
         dec = self.atn1(input, input, input)
-        input = self.atn2(dec, memory, memory)
-        return self.ff(input)
+        # print(memory.shape)
+        # print(dec[0].shape)
+        input = self.atn2(dec[0], memory, memory)
+        return self.ff(input[0])
 
 
 class Decoder(nn.Module):
     def __init__(self, num_layers, num_classes, num_heads, dim_emb, dim_in, dim_ff, maxlen, dropout):
         super().__init__()
+        self.num_classes = num_classes
         self.dropout = nn.Dropout(dropout)
         self.embedding = nn.Embedding(num_classes, dim_emb)
         self.pos = PositionalEncoding(dim_in, maxlen)
@@ -180,26 +190,37 @@ class Decoder(nn.Module):
             DecodingLayer(num_heads, dim_in, dim_ff, dropout)
             for _ in range(num_layers)
         ])
-        self.fc = nn.Linear(dim_in, num_classes, bias=False)
+        self.fc = nn.Sequential(nn.LayerNorm(dim_in), nn.Linear(dim_in, num_classes, bias=False))
+        self.maxlen = maxlen
 
     def forward(self, inputs, memory):
-        # print("mem shape")
-        # print(memory.shape)
+        outs = []
+        batch = inputs.size(0)
+        inps = inputs.new_zeros(batch, self.maxlen).long()
+
+        for i in range(1,self.maxlen):
+            print(i)
+            out = self.encoder_forward(inps[:, :i], memory, i)
+            step = self.fc(out).log_softmax(dim=-1)
+            outs.append(step[:, -1, :])
+            inps = outs[-1].topk(1)[1]
+        print("done")
+        # print(out.shape)
+        outs = torch.stack(outs, dim=1)
+        return outs
+
+
+    def encoder_forward(self, inputs, memory, lens):
         # print(inputs.shape)
-        # print(self.embedding(inputs.long()).shape)
-        # print(inputs.shape)
-        print(self.embedding(inputs.long()).shape)
-        print(self.pos(inputs, memory.size(2)).shape)
-        out = self.embedding(inputs.long()) + self.pos(inputs, memory.size(2))
+        out = self.embedding(inputs.long()) + self.pos(inputs, lens)
         # print(out.shape)/
-        out = self.dropout(out)
+        # out = self.dropout(out)
         for layer in self.layers:
-            print(out.shape)
-            print(memory.shape)
-            out, dec_atn, mem_atn = layer(out, memory)
-        out = self.fc(out)
-        out = torch.softmax(out, dim=-1)
+            # print(out.shape)
+            # print(memory.shape)
+            out = layer(out,memory)
         return out
+
 
 class Transformer(nn.Module):
     def __init__(self, num_layers, num_classes, num_heads, dim_emb, dim_in, dim_ff, maxlen, dropout):
@@ -213,15 +234,16 @@ class Transformer(nn.Module):
         enc = self.encoder(input)
         print("decoding ...")
         out = self.decoder(targets, enc)
-        return out
+        preds = out.max(-1)[1]
+        return preds
 
 if __name__ == "__main__":
     torch.cuda.empty_cache()
-    device = torch.device("cuda")
-    src = torch.rand(64, 32, 128)
-    tgt = torch.rand(64, 16, 128)
-    model = Transformer(6, 6, 8, 128, 128, 512, 1000, .01)
-    model = model
+    # device = torch.device("cuda")
+    src = torch.rand(32, 16, 64)
+    tgt = torch.rand(32, 8, 64)
+    model = Transformer(6, 6, 8, 64, 64, 64, 100, .01)
+    # model = model.to(device)
     out = model(src, tgt)
     print(out.shape)
 
