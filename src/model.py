@@ -231,21 +231,23 @@ class Transformer(nn.Module):
     def forward(self, input, targets):
         # out = self.feature_extractor(input)
         print("encoding :>")
+        # print(out.shape)
+        print(input.shape)
         enc = self.encoder(input)
         print("decoding ...")
         out = self.decoder(targets, enc)
         preds = out.max(-1)[1]
         return preds
 
-if __name__ == "__main__":
-    torch.cuda.empty_cache()
-    # device = torch.device("cuda")
-    src = torch.rand(32, 16, 64)
-    tgt = torch.rand(32, 8, 64)
-    model = Transformer(6, 6, 8, 64, 64, 64, 100, .01)
-    # model = model.to(device)
-    out = model(src, tgt)
-    print(out.shape)
+# if __name__ == "__main__":
+#     torch.cuda.empty_cache()
+#     device = torch.device("cuda")
+#     src = torch.rand(32, 16, 64)
+#     tgt = torch.rand(32, 8, 64)
+#     model = Transformer(6, 6, 8, 64, 64, 64, 100, .01)
+#     # model = model.to(device)
+#     out = model(src, tgt)
+#     print(out.shape)
 
 
 

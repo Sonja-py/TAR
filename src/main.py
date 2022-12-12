@@ -1,6 +1,7 @@
 # import numpy as np
 import matplotlib.pyplot as plt
 import utils as U
+import model as NET
 
 import torch
 import torch.nn as nn
@@ -9,7 +10,8 @@ from torch.utils.data import DataLoader
 
 
 def model_train(model, train_data, test_data, n_epoch=100):
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = "cpu"
     train_loader = DataLoader(dataset=train_data,
                     batch_size=20, shuffle=True,
                     collate_fn=lambda x: U.process_data(x, 'train'))
@@ -35,8 +37,8 @@ def model_train(model, train_data, test_data, n_epoch=100):
         spectrograms, labels = spectrograms.to(device), labels.to(device)
     
         optimizer.zero_grad()
-        prediction = model(spectrograms)
-        prediction = prediction.cpu()
+        prediction = model(spectrograms, labels)
+        # prediction = prediction.cpu()
         loss = criterion(prediction, labels, input_len, label_len)
         batch_loss += loss.item()
         
@@ -80,3 +82,9 @@ def model_test(model, test_loader, device):
 
   accuracy = batch_accuracy/len(test_loader)  
   return accuracy
+
+if __name__ == "__main__":
+    inp = U.input_data()
+    train, test, = inp.load_librispeech()
+    model = NET.Transformer(6, 6, 8, 128, 128, 64, 100, .01)
+    model_train(model, train, test)
